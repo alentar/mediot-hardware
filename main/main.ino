@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <String.h> 
+//#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
 
 typedef struct{
     char ssid[20];
@@ -15,7 +16,9 @@ typedef struct{
 /* Set these to your desired credentials. */
 const char *ssid = "Mediot1";
 const char *password = "randompassword";
-const char *deviceID = "mediot1";
+const char *deviceID = "mediot";
+
+Config *station_data;  //global data of wifi conection
 
 #define TRUE  1
 #define FALSE 0
@@ -30,6 +33,7 @@ void handleSetup();
 void handleFinishWizard();
 void setupCredentials(const char *ssid, const char *password, int ward, int bed);
 void sendError(char *message, int status);
+void configureSoftAP();
 
 int checkEEPROM();
 void EEPROM_wifidata();
@@ -46,26 +50,71 @@ ESP8266WebServer server(8080);
 
 void setup() {
 	delay(1000);
+  //starting eeprom and serial 
 	Serial.begin(115200);
-	Serial.println();
-	Serial.print("Configuring access point...");
-	/* You can remove the password parameter if you want the AP to be open. */
-	WiFi.softAP(ssid);
+  EEPROM.begin(512);  //in node EEPROM should init and EEPROM.commit to write.
+  
+ Serial.setDebugOutput(true); //setting debug mode on
+//  int n=0,val=0;
+//  EEPROM.put(n,val);
+//  EEPROM.commit();
+  
+   if(checkEEPROM()==FALSE){
+    //starting the AP
+    configureSoftAP();
 
-	IPAddress myIP = WiFi.softAPIP();
-	Serial.print("AP IP address: ");
-	Serial.println(myIP);
-  server.on("/api/status", handleStatus);
-  server.on("/api/config", handleSetup);
-  server.on("/api/finish/wizard", handleFinishWizard);
-  server.onNotFound(handleNotFound);
-	server.begin();
-	Serial.println("HTTP server started");
+    while(checkEEPROM()!=TRUE){
+      //we need to run the sever till the client writes the data to EEPROM
+      server.handleClient();
+      delay(1000);
+    }
+    //closing the AP
+    WiFi.disconnect();
+    WiFi.softAPdisconnect();
+    
+   }
+   else{
+    //EEPROM is written. Get the values in mem location=sizeof(int);
+    EEPROM.get(sizeof(int),station_data);
+    
+    Serial.println("value of on EEPROM: ");
+    Serial.println(station_data->ssid);
+    Serial.println(station_data->password);
+   }
+   
 }
 
 void loop() {
-	server.handleClient();
+	 
+	  
 }
+
+
+/*
+ * START OF STATION MODE
+ */
+int checkEEPROM(){
+  int mem_loc=0;
+  int value;
+  EEPROM.get(mem_loc,value);
+  Serial.println("value of EEPROM: ");
+  Serial.print(value);
+  Serial.println();
+
+  if(value==1){
+    return TRUE;
+  }else{
+    return FALSE;
+  }
+}
+
+
+
+
+
+/*
+ * END OF STATION MODE
+ */
 
 
 /*             Start of WIFI SERVER            
@@ -74,6 +123,28 @@ void loop() {
 * /api/finish/wizard for end
 *
 */
+void configureSoftAP(){
+    //dc all
+    WiFi.disconnect();
+    WiFi.softAPdisconnect();
+    
+  Serial.println();
+  Serial.print("Configuring access point...");
+  /* You can remove the password parameter if you want the AP to be open. */
+  WiFi.mode(WIFI_AP_STA);
+  Serial.println(WiFi.softAP(ssid) ? "Ready" : "Failed!");
+  
+  IPAddress myIP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(myIP);
+  server.on("/api/status", handleStatus);
+  server.on("/api/config", handleSetup);
+  server.on("/api/finish/wizard", handleFinishWizard);
+  server.onNotFound(handleNotFound);
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
 
 void handleStatus(){
   StaticJsonBuffer<300> JSONbuffer;   //Declaring static JSON buffer
@@ -150,6 +221,7 @@ void setupCredentials(const char *ssid, const char *password, int ward, int bed)
 
   addr += sizeof(int);
   EEPROM.put(addr, myconfig);
+  EEPROM.commit();
 }
 
 void sendError(char *message, int status){
@@ -164,3 +236,4 @@ void sendError(char *message, int status){
 }
 
 /*             END OF WIFI SERVER               */
+
