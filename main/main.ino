@@ -3,7 +3,7 @@
 #include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
-#include <String.h>
+#include <String.h> 
 
 typedef struct{
     char ssid[20];
@@ -17,8 +17,63 @@ const char *ssid = "Mediot1";
 const char *password = "randompassword";
 const char *deviceID = "mediot1";
 
+#define TRUE  1
+#define FALSE 0
+
+
+/*definitions
+ * 
+*/
+void handleStatus();
+void handleNotFound();
+void handleSetup();
+void handleFinishWizard();
+void setupCredentials(const char *ssid, const char *password, int ward, int bed);
+void sendError(char *message, int status);
+
+int checkEEPROM();
+void EEPROM_wifidata();
+/*
+ * END OF DEFINITIONS
+ */
+
+
+
 ESP8266WebServer server(8080);
 
+
+
+
+void setup() {
+	delay(1000);
+	Serial.begin(115200);
+	Serial.println();
+	Serial.print("Configuring access point...");
+	/* You can remove the password parameter if you want the AP to be open. */
+	WiFi.softAP(ssid);
+
+	IPAddress myIP = WiFi.softAPIP();
+	Serial.print("AP IP address: ");
+	Serial.println(myIP);
+  server.on("/api/status", handleStatus);
+  server.on("/api/config", handleSetup);
+  server.on("/api/finish/wizard", handleFinishWizard);
+  server.onNotFound(handleNotFound);
+	server.begin();
+	Serial.println("HTTP server started");
+}
+
+void loop() {
+	server.handleClient();
+}
+
+
+/*             Start of WIFI SERVER            
+* /api/status for check
+* /api/config for configurations
+* /api/finish/wizard for end
+*
+*/
 
 void handleStatus(){
   StaticJsonBuffer<300> JSONbuffer;   //Declaring static JSON buffer
@@ -108,25 +163,4 @@ void sendError(char *message, int status){
   server.send(status, "application/json", JSONmessageBuffer);
 }
 
-void setup() {
-	delay(1000);
-	Serial.begin(115200);
-	Serial.println();
-	Serial.print("Configuring access point...");
-	/* You can remove the password parameter if you want the AP to be open. */
-	WiFi.softAP(ssid, password);
-
-	IPAddress myIP = WiFi.softAPIP();
-	Serial.print("AP IP address: ");
-	Serial.println(myIP);
-  server.on("/api/status", handleStatus);
-  server.on("/api/config", handleSetup);
-  server.on("/api/finish/wizard", handleFinishWizard);
-  server.onNotFound(handleNotFound);
-	server.begin();
-	Serial.println("HTTP server started");
-}
-
-void loop() {
-	server.handleClient();
-}
+/*             END OF WIFI SERVER               */
