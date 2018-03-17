@@ -4,21 +4,23 @@
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <String.h> 
-//#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
 
-typedef struct{
-    char ssid[20];
-    char password[50];
-    int ward;
-    int bed;
-} Config;
+//typedef struct{
+//    char ssid[20];
+//    char password[50];
+//    int ward;
+//    int bed;
+//} Config;
 
+char st_ssid[20];
+char st_password[10];
+char st_link[20];
 /* Set these to your desired credentials. */
 const char *ssid = "Mediot1";
 const char *password = "randompassword";
 const char *deviceID = "mediot";
 
-Config *station_data;  //global data of wifi conection
+//Config *station_data;  //global data of wifi conection
 
 #define TRUE  1
 #define FALSE 0
@@ -31,7 +33,7 @@ void handleStatus();
 void handleNotFound();
 void handleSetup();
 void handleFinishWizard();
-void setupCredentials(const char *ssid, const char *password, int ward, int bed);
+void setupCredentials(const char *ssid, const char *password, char* link);
 void sendError(char *message, int status);
 void configureSoftAP();
 
@@ -58,6 +60,9 @@ void setup() {
 //  int n=0,val=0;
 //  EEPROM.put(n,val);
 //  EEPROM.commit();
+
+    
+  
   
    if(checkEEPROM()==FALSE){
     //starting the AP
@@ -66,26 +71,60 @@ void setup() {
     while(checkEEPROM()!=TRUE){
       //we need to run the sever till the client writes the data to EEPROM
       server.handleClient();
-      delay(1000);
+      delay(5000);
     }
     //closing the AP
-    WiFi.disconnect();
-    WiFi.softAPdisconnect();
+//    WiFi.disconnect();
+//    WiFi.softAPdisconnect();
+int x=0;
+EEPROM.begin(512);
+while(x<=4){
+  char *val; int adr=sizeof(int);
+
     
+    Serial.println("value on EEPROM: ");
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_ssid);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_password);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    Serial.println();
+    x++;
+    delay(1000);
+}
+ EEPROM.end();
+    delay(1000);
    }
    else{
+
+    delay(1000);
     //EEPROM is written. Get the values in mem location=sizeof(int);
-    EEPROM.get(sizeof(int),station_data);
-    
-    Serial.println("value of on EEPROM: ");
-    Serial.println(station_data->ssid);
-    Serial.println(station_data->password);
+   
+    Serial.println("HAS DATA ");
+  
    }
    
 }
 
 void loop() {
-	 
+  EEPROM.begin(512);
+    delay(3000);
+	 char *val; int adr=sizeof(int);
+
+    
+    Serial.println("value on EEPROM 2: ");
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_ssid);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_password);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    Serial.println();
 	  
 }
 
@@ -94,12 +133,14 @@ void loop() {
  * START OF STATION MODE
  */
 int checkEEPROM(){
+  EEPROM.begin(512);
   int mem_loc=0;
   int value;
   EEPROM.get(mem_loc,value);
-  Serial.println("value of EEPROM: ");
-  Serial.print(value);
-  Serial.println();
+  EEPROM.end();
+//  Serial.println("value of EEPROM: ");
+//  Serial.print(value);
+//  Serial.println();
 
   if(value==1){
     return TRUE;
@@ -125,13 +166,15 @@ int checkEEPROM(){
 */
 void configureSoftAP(){
     //dc all
-    WiFi.disconnect();
-    WiFi.softAPdisconnect();
+   // WiFi.disconnect();
+   // WiFi.softAPdisconnect();
     
   Serial.println();
   Serial.print("Configuring access point...");
   /* You can remove the password parameter if you want the AP to be open. */
-  WiFi.mode(WIFI_AP_STA);
+   WiFi.mode(WIFI_AP);
+   delay(100);
+   
   Serial.println(WiFi.softAP(ssid) ? "Ready" : "Failed!");
   
   IPAddress myIP = WiFi.softAPIP();
@@ -139,7 +182,7 @@ void configureSoftAP(){
   Serial.println(myIP);
   server.on("/api/status", handleStatus);
   server.on("/api/config", handleSetup);
-  server.on("/api/finish/wizard", handleFinishWizard);
+  server.on("/api/finish", handleFinishWizard);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("HTTP server started");
@@ -180,13 +223,13 @@ void handleSetup(){
     sendError("SSID not found", 500);
   }
 
-  if(!root.containsKey("ward")){
-    sendError("Ward not found", 500);
+  if(!root.containsKey("link")){
+    sendError("API link not found", 500);
   }
 
-  if(!root.containsKey("bed")){
-    sendError("Bed not found", 500);
-  }
+//  if(!root.containsKey("bed")){
+//    sendError("Bed not found", 500);
+//  }
 
   const char *password = "";
   if(root.containsKey("password")){
@@ -194,34 +237,113 @@ void handleSetup(){
   }
 
   const char *ssid = root["ssid"];
-  const int ward = root["ward"];
-  const int bed = root["bed"];
+  const char* link = root["link"];
+  //const int bed = root["bed"];
 
-  setupCredentials(ssid, password, ward, bed);
+  setupCredentials(ssid, password, link);
   
   server.send(200, "application/json", "{\"status\":\"ok\"}");
+  delay(500);
 }
 
 void handleFinishWizard(){
-  server.send(200, "application/json", "{\"status\":\"done\"}");
-  ESP.restart(); // restart to work with saved credentials
-}
-
-void setupCredentials(const char *ssid, const char *password, int ward, int bed){
+  EEPROM.begin(512);
   int addr = 0;
   int configSaved = 1;
+  server.send(200, "application/json", "{\"status\":\"done\"}");
+  delay(500);
 
+int x=0;
+  while(x<=4){
+  char *val; int adr=sizeof(int);
+
+    
+    Serial.println("value on EEPROM saveBefore: ");
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_ssid);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_password);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    Serial.println();
+    x++;
+    delay(1000);
+}
+
+  
   EEPROM.put(addr, configSaved);
-
-  Config *myconfig = new Config();
-  strcpy(myconfig->ssid, ssid);
-  strcpy(myconfig->password, password);
-  myconfig->ward = ward;
-  myconfig->bed = bed;
-
-  addr += sizeof(int);
-  EEPROM.put(addr, myconfig);
+  delay(100);
   EEPROM.commit();
+ x=0;
+  while(x<=2){
+  char *val; int adr=sizeof(int);
+
+    
+    Serial.println("value on EEPROM save: ");
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_ssid);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_password);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    Serial.println();
+    x++;
+    delay(1000);
+}
+  
+  EEPROM.end();
+  
+
+
+  // ESP.restart();
+ // ESP.restart(); // restart to work with saved credentials
+}
+
+void setupCredentials(const char *ssid, const char *password, const char* link){
+  int addr = 0;
+//  Config *myconfig = (Config*)malloc(sizeof(Config));
+//  strcpy(myconfig->ssid, ssid);
+//  strcpy(myconfig->password, password);
+//  myconfig->ward = ward;
+//  myconfig->bed = bed;
+
+ 
+  EEPROM.begin(512);
+  addr = sizeof(int);
+  EEPROM.put(addr,ssid);
+  delay(10);
+  addr += sizeof(st_ssid);
+  EEPROM.put(addr,password);
+  delay(10);
+  addr += sizeof(st_password);
+  EEPROM.put(addr,link);
+  delay(10);
+  EEPROM.commit();
+
+int x=0;
+  while(x<=4){
+  char *val; int adr=sizeof(int);
+
+    
+    Serial.println("value on EEPROM ADD: ");
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_ssid);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    adr+=sizeof(st_password);
+    EEPROM.get(adr,val);
+    Serial.println(val);
+    Serial.println();
+    x++;
+    delay(1000);
+}
+  
+  EEPROM.end();
 }
 
 void sendError(char *message, int status){
