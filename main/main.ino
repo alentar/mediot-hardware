@@ -3,14 +3,9 @@
 #include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
-#include <String.h> 
+#include <String.h>
+#include "FS.h" 
 
-//typedef struct{
-//    char ssid[20];
-//    char password[50];
-//    int ward;
-//    int bed;
-//} Config;
 
 char st_ssid[20];
 char st_password[10];
@@ -20,25 +15,21 @@ const char *ssid = "Mediot1";
 const char *password = "randompassword";
 const char *deviceID = "mediot";
 
-//Config *station_data;  //global data of wifi conection
-
-#define TRUE  1
-#define FALSE 0
-
 
 /*definitions
  * 
 */
 void handleStatus();
 void handleNotFound();
-void handleSetup();
+bool handleSetup();
 void handleFinishWizard();
-void setupCredentials(const char *ssid, const char *password, char* link);
 void sendError(char *message, int status);
 void configureSoftAP();
 
-int checkEEPROM();
+bool checkEEPROM();
+bool loadConfig();
 void EEPROM_wifidata();
+bool stationMode();
 /*
  * END OF DEFINITIONS
  */
@@ -51,111 +42,146 @@ ESP8266WebServer server(8080);
 
 
 void setup() {
-	delay(1000);
   //starting eeprom and serial 
 	Serial.begin(115200);
   EEPROM.begin(512);  //in node EEPROM should init and EEPROM.commit to write.
-  
- Serial.setDebugOutput(true); //setting debug mode on
-//  int n=0,val=0;
-//  EEPROM.put(n,val);
-//  EEPROM.commit();
-
-    
-  
-  
-   if(checkEEPROM()==FALSE){
+  Serial.println("Mounting FS...");
+  if (!SPIFFS.begin()) {
+    Serial.println("Failed to mount file system");
+    return;
+  }
+  Serial.setDebugOutput(true); //setting debug mode on
+ 
+   if(!checkEEPROM()){
     //starting the AP
     configureSoftAP();
 
-    while(checkEEPROM()!=TRUE){
+    while(checkEEPROM()!=true){
       //we need to run the sever till the client writes the data to EEPROM
       server.handleClient();
-      delay(5000);
+      delay(3000);
     }
     //closing the AP
-//    WiFi.disconnect();
-//    WiFi.softAPdisconnect();
-int x=0;
-EEPROM.begin(512);
-while(x<=4){
-  char *val; int adr=sizeof(int);
-
     
-    Serial.println("value on EEPROM: ");
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_ssid);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_password);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    Serial.println();
-    x++;
-    delay(1000);
-}
- EEPROM.end();
-    delay(1000);
+    WiFi.disconnect();
+    WiFi.softAPdisconnect();
+    EEPROM.end();
+    delay(100);
    }
    else{
-
+     Serial.println("HAS DATA ");
+    if(!loadConfig()){
+      Serial.println("Failed to load config file");
+    }else{
+      Serial.println("Config loaded");
+    }
     delay(1000);
-    //EEPROM is written. Get the values in mem location=sizeof(int);
-   
-    Serial.println("HAS DATA ");
-  
+    if(!stationMode()){
+      Serial.println("Failed to start Stationary mode");
+    }else{
+      Serial.println("Stationary mode started");
+    }
+    
    }
    
 }
 
 void loop() {
-  EEPROM.begin(512);
-    delay(3000);
-	 char *val; int adr=sizeof(int);
-
-    
-    Serial.println("value on EEPROM 2: ");
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_ssid);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_password);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    Serial.println();
-	  
+   Serial.print(" ssid: ");
+  Serial.println(st_ssid);
+  Serial.print(" password: ");
+  Serial.println(st_password);
+  Serial.print("Loaded link: ");
+  Serial.println(st_link);
+  Serial.println(WiFi.status());
+	  delay(5000);
 }
 
 
 /*
  * START OF STATION MODE
  */
-int checkEEPROM(){
-  EEPROM.begin(512);
+bool checkEEPROM(){
+  
   int mem_loc=0;
   int value;
   EEPROM.get(mem_loc,value);
-  EEPROM.end();
-//  Serial.println("value of EEPROM: ");
-//  Serial.print(value);
-//  Serial.println();
 
   if(value==1){
-    return TRUE;
+    return true;
   }else{
-    return FALSE;
+    return false;
   }
 }
 
+bool loadConfig() {
+  File configFile = SPIFFS.open("/config.json", "r");
+  if (!configFile) {
+    Serial.println("Failed to open config file");
+    return false;
+  }
 
+  size_t size = configFile.size();
+  if (size > 1024) {
+    Serial.println("Config file size is too large");
+    return false;
+  }
 
+  // Allocate a buffer to store contents of the file.
+  std::unique_ptr<char[]> buf(new char[size]);
+
+ 
+  configFile.readBytes(buf.get(), size);
+
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject& json = jsonBuffer.parseObject(buf.get());
+
+  if (!json.success()) {
+    Serial.println("Failed to parse config file");
+    return false;
+  }
+
+  const char* ssid = json["ssid"];
+  const char*  pass= json["password"];
+  const char*  link= json["link"];
+
+  strcpy(st_ssid,ssid);
+  strcpy(st_password,pass);
+  strcpy(st_link,link);
+
+  
+  Serial.print("Loaded ssid: ");
+  Serial.println(st_ssid);
+  Serial.print("Loaded password: ");
+  Serial.println(st_password);
+  Serial.print("Loaded link: ");
+  Serial.println(st_link);
+  return true;
+}
+
+bool stationMode(){
+  WiFi.disconnect();
+  WiFi.softAPdisconnect();
+  delay(100);
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_OFF);
+  WiFi.mode(WIFI_STA);
+  if(WiFi.begin(st_ssid,st_password)){
+    return true;
+  }else{
+    return false;
+  }
+  
+}
 
 
 /*
  * END OF STATION MODE
  */
+
+
+
+
 
 
 /*             Start of WIFI SERVER            
@@ -166,8 +192,8 @@ int checkEEPROM(){
 */
 void configureSoftAP(){
     //dc all
-   // WiFi.disconnect();
-   // WiFi.softAPdisconnect();
+    WiFi.disconnect();
+    WiFi.softAPdisconnect();
     
   Serial.println();
   Serial.print("Configuring access point...");
@@ -211,7 +237,7 @@ void handleNotFound(){
   server.send(404, "application/json", JSONmessageBuffer);
 }
 
-void handleSetup(){
+bool handleSetup(){
   StaticJsonBuffer<300> JSONbuffer;   //Declaring static JSON buffer
   JsonObject& root = JSONbuffer.parseObject(server.arg("plain"));
 
@@ -226,125 +252,32 @@ void handleSetup(){
   if(!root.containsKey("link")){
     sendError("API link not found", 500);
   }
-
-//  if(!root.containsKey("bed")){
-//    sendError("Bed not found", 500);
-//  }
-
-  const char *password = "";
-  if(root.containsKey("password")){
-    password = root["password"];
+  
+   File configFile = SPIFFS.open("/config.json", "w");
+  if (!configFile) {
+    Serial.println("Failed to open config file for writing");
+    return false;
   }
 
-  const char *ssid = root["ssid"];
-  const char* link = root["link"];
-  //const int bed = root["bed"];
-
-  setupCredentials(ssid, password, link);
-  
+  root.printTo(configFile);
   server.send(200, "application/json", "{\"status\":\"ok\"}");
   delay(500);
+  return true;
 }
 
 void handleFinishWizard(){
-  EEPROM.begin(512);
+  
   int addr = 0;
   int configSaved = 1;
   server.send(200, "application/json", "{\"status\":\"done\"}");
   delay(500);
-
-int x=0;
-  while(x<=4){
-  char *val; int adr=sizeof(int);
-
-    
-    Serial.println("value on EEPROM saveBefore: ");
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_ssid);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_password);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    Serial.println();
-    x++;
-    delay(1000);
-}
-
-  
   EEPROM.put(addr, configSaved);
   delay(100);
   EEPROM.commit();
- x=0;
-  while(x<=2){
-  char *val; int adr=sizeof(int);
-
-    
-    Serial.println("value on EEPROM save: ");
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_ssid);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_password);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    Serial.println();
-    x++;
-    delay(1000);
-}
-  
-  EEPROM.end();
-  
-
-
-  // ESP.restart();
- // ESP.restart(); // restart to work with saved credentials
-}
-
-void setupCredentials(const char *ssid, const char *password, const char* link){
-  int addr = 0;
-//  Config *myconfig = (Config*)malloc(sizeof(Config));
-//  strcpy(myconfig->ssid, ssid);
-//  strcpy(myconfig->password, password);
-//  myconfig->ward = ward;
-//  myconfig->bed = bed;
-
  
-  EEPROM.begin(512);
-  addr = sizeof(int);
-  EEPROM.put(addr,ssid);
-  delay(10);
-  addr += sizeof(st_ssid);
-  EEPROM.put(addr,password);
-  delay(10);
-  addr += sizeof(st_password);
-  EEPROM.put(addr,link);
-  delay(10);
-  EEPROM.commit();
-
-int x=0;
-  while(x<=4){
-  char *val; int adr=sizeof(int);
-
-    
-    Serial.println("value on EEPROM ADD: ");
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_ssid);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    adr+=sizeof(st_password);
-    EEPROM.get(adr,val);
-    Serial.println(val);
-    Serial.println();
-    x++;
-    delay(1000);
+  ESP.restart(); // restart to work with saved credentials
 }
-  
-  EEPROM.end();
-}
+
 
 void sendError(char *message, int status){
   StaticJsonBuffer<300> JSONbuffer;   //Declaring static JSON buffer
