@@ -5,15 +5,26 @@
 #include <EEPROM.h>
 #include <String.h>
 #include "FS.h" 
+#include <MQTTClient.h>
 
+#define CLIENT_TOPIC "medIOT"
+#define CLIENT_ID "ESP-TEST"
+#define BROKER_USER "try"
+#define BROKER_PASS "try"
+#define HEARTPIN A0
 
-char st_ssid[20];
-char st_password[10];
+unsigned long lastMillis=0;
+
+char ST_SSID[20];
+char ST_PASSWORD[20];
 char st_link[20];
 /* Set these to your desired credentials. */
 const char *ssid = "Mediot1";
 const char *password = "randompassword";
 const char *deviceID = "mediot";
+
+MQTTClient client;
+WiFiClient wificlient;
 
 
 /*definitions
@@ -30,6 +41,8 @@ bool checkEEPROM();
 bool loadConfig();
 void EEPROM_wifidata();
 bool stationMode();
+
+void mqtt_connect();
 /*
  * END OF DEFINITIONS
  */
@@ -43,7 +56,7 @@ ESP8266WebServer server(8080);
 
 void setup() {
   //starting eeprom and serial 
-	Serial.begin(115200);
+  Serial.begin(115200);
   EEPROM.begin(512);  //in node EEPROM should init and EEPROM.commit to write.
   Serial.println("Mounting FS...");
   if (!SPIFFS.begin()) {
@@ -81,20 +94,35 @@ void setup() {
     }else{
       Serial.println("Stationary mode started");
     }
+
+    //starting MQTT
+    client.begin(st_link,wificlient);
     
    }
    
 }
 
 void loop() {
-   Serial.print(" ssid: ");
-  Serial.println(st_ssid);
-  Serial.print(" password: ");
-  Serial.println(st_password);
-  Serial.print("Loaded link: ");
-  Serial.println(st_link);
-  Serial.println(WiFi.status());
-	  delay(5000);
+//   Serial.print(" ssid: ");
+//  Serial.println(st_ssid);
+//  Serial.print(" password: ");
+//  Serial.println(st_password);
+//  Serial.print("Loaded link: ");
+//  Serial.println(st_link);
+//  Serial.println(WiFi.status());
+  int val=analogRead(HEARTPIN);
+    client.loop();
+     if(!client.connected()) {
+     mqtt_connect();
+   }
+  
+   if(millis() - lastMillis > 200) {
+     lastMillis = millis();
+     client.publish(CLIENT_TOPIC, (String)val);
+      Serial.println(val);
+  }
+ delay(10);
+  
 }
 
 
@@ -140,20 +168,21 @@ bool loadConfig() {
     Serial.println("Failed to parse config file");
     return false;
   }
-
+   json.printTo(Serial);
   const char* ssid = json["ssid"];
   const char*  pass= json["password"];
   const char*  link= json["link"];
-
-  strcpy(st_ssid,ssid);
-  strcpy(st_password,pass);
+  delay(10);
+  Serial.println(pass);
+  strcpy(ST_PASSWORD,pass);
   strcpy(st_link,link);
-
+  strcpy(ST_SSID,ssid);
+  delay(10);
   
   Serial.print("Loaded ssid: ");
-  Serial.println(st_ssid);
+  Serial.println(ST_SSID);
   Serial.print("Loaded password: ");
-  Serial.println(st_password);
+  Serial.println(ST_PASSWORD);
   Serial.print("Loaded link: ");
   Serial.println(st_link);
   return true;
@@ -166,7 +195,7 @@ bool stationMode(){
   WiFi.persistent(false);
   WiFi.mode(WIFI_OFF);
   WiFi.mode(WIFI_STA);
-  if(WiFi.begin(st_ssid,st_password)){
+  if(WiFi.begin(ST_SSID,ST_PASSWORD)){
     return true;
   }else{
     return false;
@@ -291,4 +320,31 @@ void sendError(char *message, int status){
 }
 
 /*             END OF WIFI SERVER               */
+
+
+/*
+ * START MQTT CLIENT
+ */
+
+void mqtt_connect(){
+
+  Serial.print("checking wifi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(1000);
+  }
+  
+  Serial.println("Connecting to Mqtt Server");
+   while (!client.connect("nodemcu","try","try")) {
+   Serial.print(".");
+   delay(1000);
+   }
+  Serial.println("\nConnected");
+  client.subscribe("nodemcu");
+}
+
+
+ /*
+  * END OF MQTT CLIENT
+  */
 
