@@ -17,7 +17,7 @@ unsigned long lastMillis=0;
 
 char ST_SSID[20];
 char ST_PASSWORD[20];
-char st_link[20];
+char ST_LINK[20];
 /* Set these to your desired credentials. */
 const char *ssid = "Mediot1";
 const char *password = "randompassword";
@@ -96,7 +96,7 @@ void setup() {
     }
 
     //starting MQTT
-    client.begin(st_link,wificlient);
+    client.begin(ST_LINK,wificlient);
     
    }
    
@@ -108,7 +108,7 @@ void loop() {
 //  Serial.print(" password: ");
 //  Serial.println(st_password);
 //  Serial.print("Loaded link: ");
-//  Serial.println(st_link);
+//  Serial.println(ST_LINK);
 //  Serial.println(WiFi.status());
   int val=analogRead(HEARTPIN);
     client.loop();
@@ -175,7 +175,7 @@ bool loadConfig() {
   delay(10);
   Serial.println(pass);
   strcpy(ST_PASSWORD,pass);
-  strcpy(st_link,link);
+  strcpy(ST_LINK,link);
   strcpy(ST_SSID,ssid);
   delay(10);
   
@@ -184,7 +184,7 @@ bool loadConfig() {
   Serial.print("Loaded password: ");
   Serial.println(ST_PASSWORD);
   Serial.print("Loaded link: ");
-  Serial.println(st_link);
+  Serial.println(ST_LINK);
   return true;
 }
 
@@ -276,6 +276,10 @@ bool handleSetup(){
 
   if(!root.containsKey("ssid")){
     sendError("SSID not found", 500);
+  }
+
+  if(!root.containsKey("password")){
+    sendError("Password not found", 500);
   }
 
   if(!root.containsKey("link")){
