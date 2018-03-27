@@ -13,7 +13,8 @@
 	 - Arduino JSON- (by Benoit Blanchan) [Link](https://arduinojson.org/?utm_source=meta&utm_medium=library.properties)
 	 - Arduino Mqtt (by Oleg Kevolenko) - [Link](https://github.com/monstrenyatko/ArduinoMqtt)
 	 
- 4.  Set the sketch option from `Tools` menu as follows ![screenshot_4](https://user-images.githubusercontent.com/18147085/37981376-334bc38c-320b-11e8-8374-dbb502e9d963.jpg)
+ 4.  Set the sketch option from `Tools` menu as follows 
+ ![screenshot_4](https://user-images.githubusercontent.com/18147085/37981376-334bc38c-320b-11e8-8374-dbb502e9d963.jpg)
 
 ## Board Configuration
  In this, we are using two sensors, Heart Pulse sensor and Temperature sensor. Pulse sensor is given to A0 input, and Temperature sensor DS18B20 given to GPIO input
@@ -53,8 +54,11 @@ API end points of the Sever as follows;
 Get the status of the server.
 
 **URL** : `/api/status/`
+
 **Method** : `GET`
+
 **Auth required** : NO
+
 **Permissions required** : None
 
  Success Response
@@ -72,9 +76,13 @@ Get the status of the server.
 Setting the WiFi credentials and API end point of the mqtt server
 
 **URL** : `/api/config/`
+
 **Method** : `POST`
+
 **Auth required** : --
+
 **Permissions required** : --
+
 **Data constraints**
 
 Provide wifi details and api end point.
@@ -101,8 +109,11 @@ Provide wifi details and api end point.
 Saving the given wifi credentials and end point
 
 **URL** : `/api/finish`
+
 **Method** : `GET`
+
 **Auth required** : NO
+
 **Permissions required** : None
 
  Success Response
