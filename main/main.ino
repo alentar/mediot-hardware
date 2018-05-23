@@ -7,11 +7,9 @@
 #include "FS.h"
 #include <MQTTClient.h>
 
-#define CLIENT_TOPIC "medIOT"
-#define BROKER_USER "try"
-#define BROKER_PASS "try"
 #define HEARTPIN A0
-
+#define GREENLED D1
+#define REDLED D2
 unsigned long lastMillis = 0;
 
 const char *AUTH_SELF = "";
@@ -26,6 +24,8 @@ const char *ssid = "Mediot1";
 const char *password = "randompassword";
 const char *deviceID = "mediot";
 
+const int LED13 = 13;          // The on-board Arduino LED, close to PIN 13.
+int Threshold = 550;
 
 MQTTClient client;
 WiFiClient wificlient;
@@ -58,11 +58,14 @@ ESP8266WebServer server(8080);
 
 
 
-
 void setup() {
   //starting eeprom and serial
   Serial.begin(115200);
   EEPROM.begin(512);  //in node EEPROM should init and EEPROM.commit to write.
+
+  pinMode(GREENLED,OUTPUT);
+   pinMode(REDLED,OUTPUT);
+  
   Serial.println("Mounting FS...");
   if (!SPIFFS.begin()) {
     Serial.println("Failed to mount file system");
@@ -72,6 +75,8 @@ void setup() {
 
   if (!checkEEPROM()) {
     //starting the AP
+    digitalWrite(REDLED,HIGH);
+    
     configureSoftAP();
 
     while (checkEEPROM() != true) {
@@ -101,27 +106,32 @@ void setup() {
     }
 
     //starting MQTT
-    char* broker = "192.168.8.100";
+    //char* broker = "192.168.8.100";
 
 
-    while (!authorize()); //client sending post
+    while (!authorize()){
+      delay(500);//client sending post
+    }
+    
+    client.begin(ST_LINK, wificlient); //conecting to mqtt broker
 
-    client.begin("192.168.8.100", wificlient);
-
+    
   }
 
 }
 
 void loop() {
-
-  int val = analogRead(HEARTPIN);
+  
+  //int val = analogRead(HEARTPIN);
   client.loop();
   if (!client.connected()) {
     mqtt_connect();
   }
+ 
 
   if (millis() - lastMillis > 200) {
     lastMillis = millis();
+    int val = analogRead(HEARTPIN);
     String topic = TOPIC;
     topic += "/type/bpm";
     client.publish(topic, (String)val);
@@ -147,11 +157,10 @@ boolean authorize() {
   String buffer;
   char json[1000];
 
-
   // String* host = ST_LINK;
-  if (!wificlient.connect(host, httpPort)) {
+  if (!wificlient.connect(ST_LINK, httpPort)) {
     Serial.println("connection failed");
-    delay(1000);
+    delay(500);
     return false;
   }
 
@@ -159,7 +168,7 @@ boolean authorize() {
   // Send request to the server:
   wificlient.println("POST /api/devices/auth/self HTTP/1.1");
   wificlient.print("Host: ");
-  wificlient.println(host);
+  wificlient.println(ST_LINK);
   wificlient.println("User-Agent: Arduino/1.0");
   wificlient.println("Connection: close");
   wificlient.println("Accept: */*");
@@ -205,19 +214,22 @@ boolean authorize() {
   Serial.println(state);
   root.printTo(Serial);
   if (strcmp(state, operate) == 0) {
-    Serial.println("HELLOOOOOOOOOOOOOO");
+   // Serial.println("HELLOOOOOOOOOOOOOO");
     const char* mqttTopic = root["mqttTopic"];
     const char* id = root["id"];
     Serial.println(mqttTopic);
     strcpy(TOPIC, mqttTopic);
     strcpy(CLIENT_ID, id);
     Serial.println(TOPIC);
-    delay(100);
+    delay(1000);
     return true;
+  }else{
+    delay(4000);
+  return false;
   }
 
 
-  delay(5000);
+  delay(4000);
   return false;
 
 
@@ -279,7 +291,6 @@ bool loadConfig() {
   const char*  pass = json["password"];
   const char*  link = json["link"];
   delay(10);
-  Serial.println(pass);
   strcpy(ST_PASSWORD, pass);
   strcpy(ST_LINK, link);
   strcpy(ST_SSID, ssid);
@@ -440,6 +451,7 @@ void mqtt_connect() {
 
   Serial.print("checking wifi...");
   while (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wifi disconnected, connecting again");
     Serial.print(".");
     delay(1000);
   }
@@ -451,7 +463,9 @@ void mqtt_connect() {
     delay(1000);
   }
   Serial.println("\nConnected");
-
+  
+  digitalWrite(REDLED,LOW);
+  digitalWrite(GREENLED,HIGH);
 }
 
 
