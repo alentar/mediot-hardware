@@ -7,10 +7,12 @@
 #include "FS.h"
 #include <MQTTClient.h>
 
+
 #define HEARTPIN A0
 #define GREENLED D1
 #define REDLED D2
-unsigned long lastMillis = 0;
+
+
 
 const char *AUTH_SELF = "";
 
@@ -24,8 +26,21 @@ const char *ssid = "Mediot1";
 const char *password = "randompassword";
 const char *deviceID = "mediot";
 
-const int LED13 = 13;          // The on-board Arduino LED, close to PIN 13.
-int Threshold = 550;
+typedef struct t  {
+    unsigned long tStart;
+    unsigned long tTimeout;
+}timer;
+
+timer pulse_timer = {0, 1000}; //Run every 1 seconds.
+
+ int UpperThreshold = 518;
+  int LowerThreshold = 490;
+  int reading = 0;
+  bool IgnoreReading = false;
+  bool FirstPulseDetected = false;
+  unsigned long FirstPulseTime = 0;
+  unsigned long SecondPulseTime = 0;
+  unsigned long PulseInterval = 0;
 
 MQTTClient client;
 WiFiClient wificlient;
@@ -48,6 +63,9 @@ bool stationMode();
 
 void mqtt_connect();
 boolean authorize();
+
+float getHeartRate();
+void sendPulse (float bpm);
 /*
    END OF DEFINITIONS
 */
@@ -64,7 +82,7 @@ void setup() {
   EEPROM.begin(512);  //in node EEPROM should init and EEPROM.commit to write.
 
   pinMode(GREENLED,OUTPUT);
-   pinMode(REDLED,OUTPUT);
+  pinMode(REDLED,OUTPUT);
   
   Serial.println("Mounting FS...");
   if (!SPIFFS.begin()) {
@@ -72,10 +90,10 @@ void setup() {
     return;
   }
   Serial.setDebugOutput(true); //setting debug mode on
-
+   digitalWrite(REDLED,HIGH);
   if (!checkEEPROM()) {
     //starting the AP
-    digitalWrite(REDLED,HIGH);
+    
     
     configureSoftAP();
 
@@ -122,24 +140,93 @@ void setup() {
 
 void loop() {
   
-  //int val = analogRead(HEARTPIN);
+  
+  
+    delay(50);
+    float bpm = (float)getHeartRate();
+     Serial.println(bpm);
   client.loop();
   if (!client.connected()) {
     mqtt_connect();
   }
- 
 
-  if (millis() - lastMillis > 200) {
-    lastMillis = millis();
-    int val = analogRead(HEARTPIN);
-    String topic = TOPIC;
-    topic += "/type/bpm";
-    client.publish(topic, (String)val);
-    Serial.println(val);
-  }
-  delay(1000);
+  if (tCheck(&pulse_timer)) {
+     Serial.println(bpm);
+      sendPulse(bpm);
+      tRun(&pulse_timer);
+    }
+         
+    //Serial.println(bpm);
+
+  
+  
 
 }
+
+/* Heart Rate
+ *  
+ */
+
+void sendPulse (float bpm) {
+  //This executes every 1000ms.
+ 
+  
+  Serial.print("send");
+  Serial.println(bpm);
+  String topic = TOPIC;
+  topic += "/type/bpm";
+  client.publish(topic, (String)bpm);
+}
+
+bool tCheck (timer *t ) {
+  if (millis() > t->tStart + t->tTimeout) {
+    return true;    
+  }
+  return false;
+}
+
+void tRun (timer *t) {
+    t->tStart = millis();
+}
+
+float getHeartRate(){
+ 
+
+    reading = analogRead(HEARTPIN); 
+
+      // Heart beat leading edge detected.
+      if(reading > UpperThreshold && IgnoreReading == false){
+        if(FirstPulseDetected == false){
+          FirstPulseTime = millis();
+          FirstPulseDetected = true;
+        }
+        else{
+          SecondPulseTime = millis();
+          PulseInterval = SecondPulseTime - FirstPulseTime;
+          FirstPulseTime = SecondPulseTime;
+        }
+        IgnoreReading = true;
+      }
+
+      // Heart beat trailing edge detected.
+      if(reading < LowerThreshold){
+        IgnoreReading = false;
+      }  
+
+      float BPM = (1.0/PulseInterval) * 60.0 * 1000;
+
+      return BPM;
+
+  
+}
+
+
+/*
+ * END OF HEART RATE
+ */
+
+
+
 
 /*
    Device IDs
@@ -164,7 +251,7 @@ boolean authorize() {
     return false;
   }
 
-  Serial.print("Requesting POST: ");
+  Serial.println("Requesting POST: ");
   // Send request to the server:
   wificlient.println("POST /api/devices/auth/self HTTP/1.1");
   wificlient.print("Host: ");
@@ -193,28 +280,24 @@ boolean authorize() {
   results[index] = '\0';
   //Serial.println(results);
   int j = 0;
-  for (int i = 433; i < index; i++) {
+  for (int i = 430; i < index; i++) {
     json[j] = results[i];
     j++;
   }
   json[j] = '\0';
 
-
-  Serial.println();
   Serial.println("closing connection");
-  Serial.println("JSON Reply");
-  Serial.println(json);
-
+  
   const size_t bufferSize = JSON_OBJECT_SIZE(3) + 70;
   DynamicJsonBuffer jsonBuffer(bufferSize);
   JsonObject& root = jsonBuffer.parseObject(json);
 
   const char* state = root["state"];
   const char* operate = "operate";
-  Serial.println(state);
-  root.printTo(Serial);
+
+ // root.printTo(Serial);
+  
   if (strcmp(state, operate) == 0) {
-   // Serial.println("HELLOOOOOOOOOOOOOO");
     const char* mqttTopic = root["mqttTopic"];
     const char* id = root["id"];
     Serial.println(mqttTopic);
@@ -225,10 +308,8 @@ boolean authorize() {
     return true;
   }else{
     delay(4000);
-  return false;
+    return false;
   }
-
-
   delay(4000);
   return false;
 
