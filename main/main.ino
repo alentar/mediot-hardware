@@ -6,12 +6,14 @@
 #include <String.h>
 #include "FS.h"
 #include <MQTTClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 
 #define HEARTPIN A0
 #define GREENLED D1
 #define REDLED D2
-
+#define ONE_WIRE_BUS D5
 
 
 const char *AUTH_SELF = "";
@@ -21,19 +23,25 @@ char ST_PASSWORD[20];
 char ST_LINK[20];
 char CLIENT_ID[30];
 char TOPIC[100];
+
 /* Set these to your desired credentials. */
 const char *ssid = "Mediot1";
 const char *password = "randompassword";
 const char *deviceID = "mediot";
+
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
 
 typedef struct t  {
     unsigned long tStart;
     unsigned long tTimeout;
 }timer;
 
-timer pulse_timer = {0, 1000}; //Run every 1 seconds.
+timer pulse_timer = {0, 1000}; //Run every 1 seconds for pulse sensor.
+timer temp_timer = {0, 5000}; //5sec for temp
 
- int UpperThreshold = 518;
+  int UpperThreshold = 518;
   int LowerThreshold = 490;
   int reading = 0;
   bool IgnoreReading = false;
@@ -66,6 +74,8 @@ boolean authorize();
 
 float getHeartRate();
 void sendPulse (float bpm);
+void sendTemp(float temp);
+float getTemp();
 /*
    END OF DEFINITIONS
 */
@@ -124,13 +134,12 @@ void setup() {
     }
 
     //starting MQTT
-    //char* broker = "192.168.8.100";
-
-
+    
     while (!authorize()){
       delay(500);//client sending post
     }
-    
+
+    sensors.begin(); //start temp sensor
     client.begin(ST_LINK, wificlient); //conecting to mqtt broker
 
     
@@ -144,7 +153,9 @@ void loop() {
   
     delay(50);
     float bpm = (float)getHeartRate();
-     Serial.println(bpm);
+    float temp = getTemp();
+    Serial.println(bpm);
+     
   client.loop();
   if (!client.connected()) {
     mqtt_connect();
@@ -155,7 +166,13 @@ void loop() {
       sendPulse(bpm);
       tRun(&pulse_timer);
     }
-         
+
+    if (tCheck(&temp_timer)) {
+ 
+     Serial.println(temp);
+      sendTemp(temp);
+      tRun(&temp_timer);
+    }      
     //Serial.println(bpm);
 
   
@@ -163,9 +180,27 @@ void loop() {
 
 }
 
-/* Heart Rate
+
+
+
+
+/* Sensors
  *  
  */
+
+void sendTemp(float temp){
+  Serial.print("send temp: ");
+  Serial.println(temp);
+  String topic = TOPIC;
+  topic += "/type/temperature";
+  client.publish(topic, (String)temp);
+}
+
+float getTemp() {
+  sensors.requestTemperatures();
+  return (sensors.getTempCByIndex(0));
+}
+
 
 void sendPulse (float bpm) {
   //This executes every 1000ms.
