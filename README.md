@@ -12,6 +12,7 @@
  3. Install following Arduino libraries by `Sketch>Library>Library Manager` ;
 	 - Arduino JSON- (by Benoit Blanchan) [Link](https://arduinojson.org/?utm_source=meta&utm_medium=library.properties)
 	 - Arduino Mqtt (by Oleg Kevolenko) - [Link](https://github.com/monstrenyatko/ArduinoMqtt)
+	 - Arduino LCD I2C Lib - [Link](https://github.com/fdebrabander/Arduino-LiquidCrystal-I2C-library)
 	 
  4.  Set the sketch option from `Tools` menu as follows 
  ![screenshot_4](https://user-images.githubusercontent.com/18147085/37981376-334bc38c-320b-11e8-8374-dbb502e9d963.jpg)
