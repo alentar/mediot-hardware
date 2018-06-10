@@ -8,6 +8,8 @@
 #include <MQTTClient.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
 
 
 #define HEARTPIN A0
@@ -32,6 +34,7 @@ const char *deviceID = "mediot";
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
+LiquidCrystal_I2C lcd(0x3F, 16, 2);  //SDL 7 SCL 5
 
 typedef struct t  {
     unsigned long tStart;
@@ -76,6 +79,7 @@ float getHeartRate();
 void sendPulse (float bpm);
 void sendTemp(float temp);
 float getTemp();
+void clearPrintingdigits(int col,int row);
 /*
    END OF DEFINITIONS
 */
@@ -93,6 +97,14 @@ void setup() {
 
   pinMode(GREENLED,OUTPUT);
   pinMode(REDLED,OUTPUT);
+
+  Wire.begin(13,14); //Wire.begin(int sda, int scl);
+  lcd.begin();   // initializing the LCD
+  lcd.backlight(); // Enable or Turn On the backlight
+  lcd.setCursor(4, 0);
+  lcd.print("RPMS v1.1"); 
+  lcd.setCursor(0, 1);
+  lcd.print("LOADING...."); // Start Printing
   
   Serial.println("Mounting FS...");
   if (!SPIFFS.begin()) {
@@ -102,9 +114,9 @@ void setup() {
   Serial.setDebugOutput(true); //setting debug mode on
    digitalWrite(REDLED,HIGH);
   if (!checkEEPROM()) {
-    //starting the AP
-    
-    
+    //starting the AP   
+    lcd.setCursor(0, 1);
+    lcd.print("CONFIG MODE"); // config mode
     configureSoftAP();
 
     while (checkEEPROM() != true) {
@@ -121,6 +133,10 @@ void setup() {
   }
   else {
     Serial.println("HAS DATA ");
+    
+    lcd.setCursor(0, 1);
+    lcd.print("LOADING CONFIG"); // Start Printing
+  
     if (!loadConfig()) {
       Serial.println("Failed to load config file");
     } else {
@@ -150,7 +166,9 @@ void setup() {
 void loop() {
   
   
+    //lcd.clear();
   
+   
     delay(50);
     float bpm = (float)getHeartRate();
     float temp = getTemp();
@@ -161,15 +179,28 @@ void loop() {
     mqtt_connect();
   }
 
+  
+  //lcd.clear();
   if (tCheck(&pulse_timer)) {
      Serial.println(bpm);
+     
+     lcd.setCursor(0, 0);
+      lcd.print("BPM : ");
+      clearPrintingdigits(6,0);
+      lcd.setCursor(6, 0);
+      lcd.print(bpm);
       sendPulse(bpm);
       tRun(&pulse_timer);
     }
 
     if (tCheck(&temp_timer)) {
- 
+     
      Serial.println(temp);
+      lcd.setCursor(0, 1);
+      lcd.print("TEMP: ");
+      clearPrintingdigits(6,1);
+      lcd.setCursor(6, 1);
+      lcd.print(temp);
       sendTemp(temp);
       tRun(&temp_timer);
     }      
@@ -180,7 +211,12 @@ void loop() {
 
 }
 
-
+void clearPrintingdigits(int col,int row){
+  for(int i=col;i<17;i++){
+    lcd.print("");
+  }
+  
+}
 
 
 
@@ -271,7 +307,11 @@ boolean authorize() {
   String device_id = String(ESP.getChipId());
   String mac_id = String(WiFi.macAddress());          //Get the response payload
 
-
+  lcd.clear();
+  lcd.setCursor(4, 0);
+  lcd.print("RPMS v1.1"); 
+  lcd.setCursor(0, 1);
+  lcd.print("DEVICE AUTH"); 
 
   const int httpPort = 3000;
   String host = "192.168.8.100";
@@ -285,7 +325,7 @@ boolean authorize() {
     delay(500);
     return false;
   }
-
+  
   Serial.println("Requesting POST: ");
   // Send request to the server:
   wificlient.println("POST /api/devices/auth/self HTTP/1.1");
@@ -333,6 +373,12 @@ boolean authorize() {
  // root.printTo(Serial);
   
   if (strcmp(state, operate) == 0) {
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("RPMS v1.1"); 
+    lcd.setCursor(0, 1);
+    lcd.print("AUTHORIZED"); 
+    
     const char* mqttTopic = root["mqttTopic"];
     const char* id = root["id"];
     Serial.println(mqttTopic);
@@ -402,6 +448,9 @@ bool loadConfig() {
     Serial.println("Failed to parse config file");
     return false;
   }
+
+  
+  
   json.printTo(Serial);
   const char* ssid = json["ssid"];
   const char*  pass = json["password"];
@@ -568,17 +617,27 @@ void mqtt_connect() {
   Serial.print("checking wifi...");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.println("Wifi disconnected, connecting again");
+    lcd.setCursor(0, 1);
+    lcd.print("WIFI DISCONNECTED"); // Start Printing
     Serial.print(".");
     delay(1000);
   }
 
   Serial.println("Connecting to Mqtt Server");
   Serial.println(CLIENT_ID);
+
+  lcd.clear();
+  lcd.setCursor(4, 0);
+  lcd.print("RPMS v1.1"); 
+  lcd.setCursor(0, 1);
+  lcd.print("MQTT CONNECTING"); // Start Printing
   while (!client.connect(CLIENT_ID, CLIENT_ID, "none")) {
     Serial.print(".");
     delay(1000);
   }
   Serial.println("\nConnected");
+
+  lcd.clear();
   
   digitalWrite(REDLED,LOW);
   digitalWrite(GREENLED,HIGH);
