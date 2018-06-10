@@ -6,11 +6,17 @@
 #include <String.h>
 #include "FS.h"
 #include <MQTTClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+
 
 #define HEARTPIN A0
 #define GREENLED D1
 #define REDLED D2
-unsigned long lastMillis = 0;
+#define ONE_WIRE_BUS D5
+
 
 const char *AUTH_SELF = "";
 
@@ -19,13 +25,33 @@ char ST_PASSWORD[20];
 char ST_LINK[20];
 char CLIENT_ID[30];
 char TOPIC[100];
+
 /* Set these to your desired credentials. */
 const char *ssid = "Mediot1";
 const char *password = "randompassword";
 const char *deviceID = "mediot";
 
-const int LED13 = 13;          // The on-board Arduino LED, close to PIN 13.
-int Threshold = 550;
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+LiquidCrystal_I2C lcd(0x3F, 16, 2);  //SDL 7 SCL 5
+
+typedef struct t  {
+    unsigned long tStart;
+    unsigned long tTimeout;
+}timer;
+
+timer pulse_timer = {0, 1000}; //Run every 1 seconds for pulse sensor.
+timer temp_timer = {0, 5000}; //5sec for temp
+
+  int UpperThreshold = 518;
+  int LowerThreshold = 490;
+  int reading = 0;
+  bool IgnoreReading = false;
+  bool FirstPulseDetected = false;
+  unsigned long FirstPulseTime = 0;
+  unsigned long SecondPulseTime = 0;
+  unsigned long PulseInterval = 0;
 
 MQTTClient client;
 WiFiClient wificlient;
@@ -48,6 +74,12 @@ bool stationMode();
 
 void mqtt_connect();
 boolean authorize();
+
+float getHeartRate();
+void sendPulse (float bpm);
+void sendTemp(float temp);
+float getTemp();
+void clearPrintingdigits(int col,int row);
 /*
    END OF DEFINITIONS
 */
@@ -64,7 +96,15 @@ void setup() {
   EEPROM.begin(512);  //in node EEPROM should init and EEPROM.commit to write.
 
   pinMode(GREENLED,OUTPUT);
-   pinMode(REDLED,OUTPUT);
+  pinMode(REDLED,OUTPUT);
+
+  Wire.begin(13,14); //Wire.begin(int sda, int scl);
+  lcd.begin();   // initializing the LCD
+  lcd.backlight(); // Enable or Turn On the backlight
+  lcd.setCursor(4, 0);
+  lcd.print("RPMS v1.1"); 
+  lcd.setCursor(0, 1);
+  lcd.print("LOADING...."); // Start Printing
   
   Serial.println("Mounting FS...");
   if (!SPIFFS.begin()) {
@@ -72,11 +112,11 @@ void setup() {
     return;
   }
   Serial.setDebugOutput(true); //setting debug mode on
-
+   digitalWrite(REDLED,HIGH);
   if (!checkEEPROM()) {
-    //starting the AP
-    digitalWrite(REDLED,HIGH);
-    
+    //starting the AP   
+    lcd.setCursor(0, 1);
+    lcd.print("CONFIG MODE"); // config mode
     configureSoftAP();
 
     while (checkEEPROM() != true) {
@@ -93,6 +133,10 @@ void setup() {
   }
   else {
     Serial.println("HAS DATA ");
+    
+    lcd.setCursor(0, 1);
+    lcd.print("LOADING CONFIG"); // Start Printing
+  
     if (!loadConfig()) {
       Serial.println("Failed to load config file");
     } else {
@@ -106,13 +150,12 @@ void setup() {
     }
 
     //starting MQTT
-    //char* broker = "192.168.8.100";
-
-
+    
     while (!authorize()){
       delay(500);//client sending post
     }
-    
+
+    sensors.begin(); //start temp sensor
     client.begin(ST_LINK, wificlient); //conecting to mqtt broker
 
     
@@ -122,24 +165,139 @@ void setup() {
 
 void loop() {
   
-  //int val = analogRead(HEARTPIN);
+  
+    //lcd.clear();
+  
+   
+    delay(50);
+    float bpm = (float)getHeartRate();
+    float temp = getTemp();
+    Serial.println(bpm);
+     
   client.loop();
   if (!client.connected()) {
     mqtt_connect();
   }
- 
 
-  if (millis() - lastMillis > 200) {
-    lastMillis = millis();
-    int val = analogRead(HEARTPIN);
-    String topic = TOPIC;
-    topic += "/type/bpm";
-    client.publish(topic, (String)val);
-    Serial.println(val);
-  }
-  delay(1000);
+  
+  //lcd.clear();
+  if (tCheck(&pulse_timer)) {
+     Serial.println(bpm);
+     
+     lcd.setCursor(0, 0);
+      lcd.print("BPM : ");
+      clearPrintingdigits(6,0);
+      lcd.setCursor(6, 0);
+      lcd.print(bpm);
+      sendPulse(bpm);
+      tRun(&pulse_timer);
+    }
+
+    if (tCheck(&temp_timer)) {
+     
+     Serial.println(temp);
+      lcd.setCursor(0, 1);
+      lcd.print("TEMP: ");
+      clearPrintingdigits(6,1);
+      lcd.setCursor(6, 1);
+      lcd.print(temp);
+      sendTemp(temp);
+      tRun(&temp_timer);
+    }      
+    //Serial.println(bpm);
+
+  
+  
 
 }
+
+void clearPrintingdigits(int col,int row){
+  for(int i=col;i<17;i++){
+    lcd.print("");
+  }
+  
+}
+
+
+
+/* Sensors
+ *  
+ */
+
+void sendTemp(float temp){
+  Serial.print("send temp: ");
+  Serial.println(temp);
+  String topic = TOPIC;
+  topic += "/type/temperature";
+  client.publish(topic, (String)temp);
+}
+
+float getTemp() {
+  sensors.requestTemperatures();
+  return (sensors.getTempCByIndex(0));
+}
+
+
+void sendPulse (float bpm) {
+  //This executes every 1000ms.
+ 
+  
+  Serial.print("send");
+  Serial.println(bpm);
+  String topic = TOPIC;
+  topic += "/type/bpm";
+  client.publish(topic, (String)bpm);
+}
+
+bool tCheck (timer *t ) {
+  if (millis() > t->tStart + t->tTimeout) {
+    return true;    
+  }
+  return false;
+}
+
+void tRun (timer *t) {
+    t->tStart = millis();
+}
+
+float getHeartRate(){
+ 
+
+    reading = analogRead(HEARTPIN); 
+
+      // Heart beat leading edge detected.
+      if(reading > UpperThreshold && IgnoreReading == false){
+        if(FirstPulseDetected == false){
+          FirstPulseTime = millis();
+          FirstPulseDetected = true;
+        }
+        else{
+          SecondPulseTime = millis();
+          PulseInterval = SecondPulseTime - FirstPulseTime;
+          FirstPulseTime = SecondPulseTime;
+        }
+        IgnoreReading = true;
+      }
+
+      // Heart beat trailing edge detected.
+      if(reading < LowerThreshold){
+        IgnoreReading = false;
+      }  
+
+      float BPM = (1.0/PulseInterval) * 60.0 * 1000;
+
+      return BPM;
+
+  
+}
+
+
+/*
+ * END OF HEART RATE
+ */
+
+
+
 
 /*
    Device IDs
@@ -149,7 +307,11 @@ boolean authorize() {
   String device_id = String(ESP.getChipId());
   String mac_id = String(WiFi.macAddress());          //Get the response payload
 
-
+  lcd.clear();
+  lcd.setCursor(4, 0);
+  lcd.print("RPMS v1.1"); 
+  lcd.setCursor(0, 1);
+  lcd.print("DEVICE AUTH"); 
 
   const int httpPort = 3000;
   String host = "192.168.8.100";
@@ -163,8 +325,8 @@ boolean authorize() {
     delay(500);
     return false;
   }
-
-  Serial.print("Requesting POST: ");
+  
+  Serial.println("Requesting POST: ");
   // Send request to the server:
   wificlient.println("POST /api/devices/auth/self HTTP/1.1");
   wificlient.print("Host: ");
@@ -193,28 +355,30 @@ boolean authorize() {
   results[index] = '\0';
   //Serial.println(results);
   int j = 0;
-  for (int i = 433; i < index; i++) {
+  for (int i = 430; i < index; i++) {
     json[j] = results[i];
     j++;
   }
   json[j] = '\0';
 
-
-  Serial.println();
   Serial.println("closing connection");
-  Serial.println("JSON Reply");
-  Serial.println(json);
-
+  
   const size_t bufferSize = JSON_OBJECT_SIZE(3) + 70;
   DynamicJsonBuffer jsonBuffer(bufferSize);
   JsonObject& root = jsonBuffer.parseObject(json);
 
   const char* state = root["state"];
   const char* operate = "operate";
-  Serial.println(state);
-  root.printTo(Serial);
+
+ // root.printTo(Serial);
+  
   if (strcmp(state, operate) == 0) {
-   // Serial.println("HELLOOOOOOOOOOOOOO");
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("RPMS v1.1"); 
+    lcd.setCursor(0, 1);
+    lcd.print("AUTHORIZED"); 
+    
     const char* mqttTopic = root["mqttTopic"];
     const char* id = root["id"];
     Serial.println(mqttTopic);
@@ -225,10 +389,8 @@ boolean authorize() {
     return true;
   }else{
     delay(4000);
-  return false;
+    return false;
   }
-
-
   delay(4000);
   return false;
 
@@ -286,6 +448,9 @@ bool loadConfig() {
     Serial.println("Failed to parse config file");
     return false;
   }
+
+  
+  
   json.printTo(Serial);
   const char* ssid = json["ssid"];
   const char*  pass = json["password"];
@@ -452,17 +617,27 @@ void mqtt_connect() {
   Serial.print("checking wifi...");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.println("Wifi disconnected, connecting again");
+    lcd.setCursor(0, 1);
+    lcd.print("WIFI DISCONNECTED"); // Start Printing
     Serial.print(".");
     delay(1000);
   }
 
   Serial.println("Connecting to Mqtt Server");
   Serial.println(CLIENT_ID);
+
+  lcd.clear();
+  lcd.setCursor(4, 0);
+  lcd.print("RPMS v1.1"); 
+  lcd.setCursor(0, 1);
+  lcd.print("MQTT CONNECTING"); // Start Printing
   while (!client.connect(CLIENT_ID, CLIENT_ID, "none")) {
     Serial.print(".");
     delay(1000);
   }
   Serial.println("\nConnected");
+
+  lcd.clear();
   
   digitalWrite(REDLED,LOW);
   digitalWrite(GREENLED,HIGH);
