@@ -1,5 +1,5 @@
 
-# MedIOT-hardware
+# RPMS-hardware
 
 ## Intro
 
@@ -126,4 +126,14 @@ Saving the given wifi credentials and end point
 }
 ```
 
+
+## Board Schemetics
+
+### Schemetic Design
+
+![schem](https://user-images.githubusercontent.com/18147085/41374517-fbb3bef4-6f70-11e8-90ef-15d819c982bb.png)
+
+### PCB Design
+
+![final](https://user-images.githubusercontent.com/18147085/41374516-fb74692a-6f70-11e8-9c38-da32477c1c74.png)
 
