@@ -15,7 +15,8 @@
 #define HEARTPIN A0
 #define GREENLED D1
 #define REDLED D2
-#define ONE_WIRE_BUS D5
+#define ONE_WIRE_BUS D6
+
 
 
 const char *AUTH_SELF = "";
@@ -190,6 +191,7 @@ void loop() {
       lcd.setCursor(6, 0);
       lcd.print(bpm);
       sendPulse(bpm);
+      
       tRun(&pulse_timer);
     }
 
